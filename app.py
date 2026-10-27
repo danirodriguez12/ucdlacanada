@@ -2,19 +2,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Control de Carga - UCD La Cañada", page_icon="⚽", layout="centered")
 
-# --- CONEXIÓN CON GOOGLE SHEETS ---
+# --- CONEXIÓN DIRECTA CON GOOGLE SHEETS ---
 @st.cache_resource
 def conectar_gsheets():
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        sheet = client.open("Control de Carga - UCD La Cañada")
+        # Se conecta directamente usando los secretos de Streamlit Cloud de forma nativa
+        conn = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+        sheet = conn.open("Control de Carga - UCD La Cañada")
         return sheet, True
     except Exception as e:
         return None, False
