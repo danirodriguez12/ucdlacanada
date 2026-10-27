@@ -14,13 +14,11 @@ CSV_RPE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMW
 
 # Base de datos interna de usuarios (staff y los 27 jugadores exactos)
 USUARIOS = {
-    # Staff y creadores
     "Manuelcarminati": {"pass": "Manuelcarminati", "rol": "staff"},
     "Danirodriguez": {"pass": "Danirodriguez", "rol": "staff"},
     "Nicorodriguez": {"pass": "Nicorodriguez", "rol": "staff"},
     "Danimoreno": {"pass": "Danimoreno", "rol": "staff"},
     
-    # Jugadores de UCD La Cañada (contraseña genérica 1234)
     "Samu": {"pass": "1234", "rol": "jugador"},
     "Enrique": {"pass": "1234", "rol": "jugador"},
     "Nico": {"pass": "1234", "rol": "jugador"},
@@ -120,7 +118,7 @@ def pantalla_jugador():
             try:
                 response = requests.post(WEBHOOK_URL, json=payload)
                 if response.status_code == 200:
-                    st.success("¡Datos enviados al Google Sheets del club con éxito!")
+                    st.success("¡Datos enviados al Google Sheets con éxito!")
                 else:
                     st.error("Error al conectar con la base de datos.")
             except Exception as e:
@@ -144,7 +142,7 @@ def pantalla_jugador():
             try:
                 response = requests.post(WEBHOOK_URL, json=payload)
                 if response.status_code == 200:
-                    st.success("¡Carga registrada en el Google Sheets del club!")
+                    st.success("¡Carga registrada en el Google Sheets!")
                 else:
                     st.error("Error al registrar la carga.")
             except Exception as e:
@@ -152,36 +150,44 @@ def pantalla_jugador():
             
     st.button("Cerrar sesión", on_click=logout)
 
+def color_semaforo_tqr(val):
+    # Si la cadena empieza por números bajos (1 o 3), pinta rojo/ámbar; altos (7 o 9) verde
+    if str(val).startswith("1") or str(val).startswith("3"):
+        return 'background-color: #ffcccc; color: #990000' # Rojo alerta
+    elif str(val).startswith("5"):
+        return 'background-color: #ffe5cc; color: #b35900' # Ámbar precaución
+    else:
+        return 'background-color: #d4edda; color: #155724' # Verde OK
+
 def pantalla_staff():
     try:
         st.image("logo.png", width=100)
     except:
         pass
         
-    st.header("Panel de control: área de performance")
+    st.header("Panel de control: Semáforos de rendimiento")
     st.write(f"Bienvenido, {st.session_state['usuario_actual']}")
     
-    st.subheader("📊 Base de datos en tiempo real")
-    
-    tab_s1, tab_s2 = st.tabs(["🌤️ Registros TQR (Mañana)", "🏃‍♂️ Registros RPE (Post-entreno)"])
+    tab_s1, tab_s2 = st.tabs(["🚦 Semáforos TQR (Recuperación)", "🚦 Semáforos RPE (Carga)"])
     
     with tab_s1:
+        st.subheader("Estado de recuperación de la plantilla")
         try:
             df_tqr = pd.read_csv(CSV_TQR_URL)
-            st.write(f"Total registros de recuperación: **{len(df_tqr)}**")
             if not df_tqr.empty:
-                st.dataframe(df_tqr.tail(15), use_container_width=True)
+                # Mostramos los últimos registros con formato visual de semáforo aplicado
+                st.dataframe(df_tqr.tail(20).style.applymap(color_semaforo_tqr, subset=['¿Cómo te sientes de recuperado en este momento?']), use_container_width=True)
             else:
                 st.info("Aún no hay datos de TQR registrados.")
         except Exception as e:
-            st.info("Asegúrate de haber publicado la hoja en la web (Archivo > Compartir > Publicar en la web).")
+            st.info("Publica tu Google Sheets en la web para activar los semáforos automáticos.")
             
     with tab_s2:
+        st.subheader("Cargas e intensidades registradas")
         try:
             df_rpe = pd.read_csv(CSV_RPE_URL)
-            st.write(f"Total registros de carga: **{len(df_rpe)}**")
             if not df_rpe.empty:
-                st.dataframe(df_rpe.tail(15), use_container_width=True)
+                st.dataframe(df_rpe.tail(20), use_container_width=True)
             else:
                 st.info("Aún no hay datos de RPE registrados.")
         except Exception as e:
