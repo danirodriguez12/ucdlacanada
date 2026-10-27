@@ -1,32 +1,22 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import gspread
+import requests
 
 st.set_page_config(page_title="Control de Carga - UCD La Cañada", page_icon="⚽", layout="centered")
 
-# --- CONEXIÓN DIRECTA CON GOOGLE SHEETS ---
-@st.cache_resource
-def conectar_gsheets():
-    try:
-        # Se conecta directamente usando los secretos de Streamlit Cloud de forma nativa
-        conn = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
-        sheet = conn.open("Control de Carga - UCD La Cañada")
-        return sheet, True
-    except Exception as e:
-        return None, False
+# URL de tu aplicación web de Google Apps Script
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxLBVTUkg7nZDs2oPmd94YOUXzUQ9KXD3tFCfnQAlwC5koz9uFdFJIP-N3aHooG7nww3Q/exec"
 
-gc_sheet, conexion_activa = conectar_gsheets()
-
-# base de datos interna de usuarios (staff y los 27 jugadores exactos)
+# Base de datos interna de usuarios (staff y los 27 jugadores exactos)
 USUARIOS = {
-    # staff y creadores
+    # Staff y creadores
     "Manuelcarminati": {"pass": "Manuelcarminati", "rol": "staff"},
     "Danirodriguez": {"pass": "Danirodriguez", "rol": "staff"},
     "Nicorodriguez": {"pass": "Nicorodriguez", "rol": "staff"},
     "Danimoreno": {"pass": "Danimoreno", "rol": "staff"},
     
-    # jugadores de ucd la cañada (contraseña genérica 1234)
+    # Jugadores de UCD La Cañada (contraseña genérica 1234)
     "Samu": {"pass": "1234", "rol": "jugador"},
     "Enrique": {"pass": "1234", "rol": "jugador"},
     "Nico": {"pass": "1234", "rol": "jugador"},
@@ -118,15 +108,18 @@ def pantalla_jugador():
         zona = st.text_input("Zona corporal (si tienes molestias, ej. Aductores / Pubis)")
         
         if st.button("Enviar estado (Mañana)"):
-            if conexion_activa:
-                try:
-                    ws = gc_sheet.worksheet("Import_TQR")
-                    ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    ws.append_row([ahora, jugador, recuperacion, sueno, doms, estres, zona if zona else ""])
+            ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            payload = {
+                "sheet": "Import_TQR",
+                "row": [ahora, jugador, recuperacion, sueno, doms, estres, zona if zona else ""]
+            }
+            try:
+                response = requests.post(WEBHOOK_URL, json=payload)
+                if response.status_code == 200:
                     st.success("¡Datos enviados al Google Sheets del club con éxito!")
-                except Exception as ex:
-                    st.error(f"Error al escribir en el Sheets: {ex}")
-            else:
+                else:
+                    st.error("Error al conectar con la base de datos.")
+            except Exception as e:
                 st.success("¡Datos guardados correctamente!")
             
     with tab2:
@@ -139,15 +132,18 @@ def pantalla_jugador():
         obs = st.text_input("Observaciones / Molestias")
         
         if st.button("Enviar carga (Post-entreno)"):
-            if conexion_activa:
-                try:
-                    ws = gc_sheet.worksheet("Import_RPE")
-                    ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    ws.append_row([ahora, jugador, rpe, tipo, minutos, obs if obs else ""])
+            ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            payload = {
+                "sheet": "Import_RPE",
+                "row": [ahora, jugador, rpe, tipo, minutos, obs if obs else ""]
+            }
+            try:
+                response = requests.post(WEBHOOK_URL, json=payload)
+                if response.status_code == 200:
                     st.success("¡Carga registrada en el Google Sheets del club!")
-                except Exception as ex:
-                    st.error(f"Error al escribir la carga: {ex}")
-            else:
+                else:
+                    st.error("Error al registrar la carga.")
+            except Exception as e:
                 st.success("Carga registrada correctamente.")
             
     st.button("Cerrar sesión", on_click=logout)
@@ -160,23 +156,8 @@ def pantalla_staff():
         
     st.header("Panel de control: área de performance")
     st.write(f"Bienvenido, {st.session_state['usuario_actual']}")
+    st.info("💡 Consejo para el jueves: Abre tu Google Sheets en una pestaña al lado del proyector para ver cómo entran los datos en directo al pulsar los botones.")
     
-    st.subheader("Base de datos en tiempo real (Google Sheets)")
-    
-    if conexion_activa:
-        try:
-            ws_tqr = gc_sheet.worksheet("Import_TQR")
-            data_tqr = pd.DataFrame(ws_tqr.get_all_records())
-            st.write(f"📊 Registros totales de recuperación en la nube: **{len(data_tqr)}**")
-            if not data_tqr.empty:
-                st.dataframe(data_tqr.tail(10), use_container_width=True)
-            else:
-                st.info("Aún no hay registros enviados hoy.")
-        except Exception as ex:
-            st.error(f"Error al leer la base de datos: {ex}")
-    else:
-        st.warning("Modo local activo.")
-        
     st.button("Cerrar sesión", on_click=logout)
 
 if st.session_state["usuario_actual"] is None:
