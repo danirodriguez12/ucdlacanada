@@ -5,14 +5,11 @@ import requests
 
 st.set_page_config(page_title="Control de Carga - UCD La Cañada", page_icon="⚽", layout="centered")
 
-# URL de tu aplicación web de Google Apps Script para recibir los envíos
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxLBVTUkg7nZDs2oPmd94YOUXzUQ9KXD3tFCfnQAlwC5koz9uFdFJIP-N3aHooG7nww3Q/exec"
 
-# Enlaces CSV directos de tus pestañas publicadas en Google Sheets (para el panel de staff)
 CSV_TQR_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?output=csv&sheet=Import_TQR"
 CSV_RPE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?output=csv&sheet=Import_RPE"
 
-# Base de datos interna de usuarios (staff y los 27 jugadores exactos)
 USUARIOS = {
     "Manuelcarminati": {"pass": "Manuelcarminati", "rol": "staff"},
     "Danirodriguez": {"pass": "Danirodriguez", "rol": "staff"},
@@ -150,14 +147,6 @@ def pantalla_jugador():
             
     st.button("Cerrar sesión", on_click=logout)
 
-def color_semaforo_tqr(val):
-    if str(val).startswith("1") or str(val).startswith("3"):
-        return 'background-color: #ffcccc; color: #990000'
-    elif str(val).startswith("5"):
-        return 'background-color: #ffe5cc; color: #b35900'
-    else:
-        return 'background-color: #d4edda; color: #155724'
-
 def pantalla_staff():
     try:
         st.image("logo.png", width=100)
@@ -175,11 +164,12 @@ def pantalla_staff():
             df_tqr = pd.read_csv(CSV_TQR_URL)
             st.write(f"Total registros: **{len(df_tqr)}**")
             if not df_tqr.empty:
-                st.dataframe(df_tqr.tail(20).style.applymap(color_semaforo_tqr, subset=['¿Cómo te sientes de recuperado en este momento?']), use_container_width=True)
+                # Mostramos la tabla directa sin estilos conflictivos para garantizar que se vea perfectamente
+                st.dataframe(df_tqr.tail(20), use_container_width=True)
             else:
                 st.info("Aún no hay datos de TQR registrados.")
         except Exception as e:
-            st.dataframe(pd.DataFrame())
+            st.info("Cargando datos...")
             
     with tab_s2:
         st.subheader("Cargas e intensidades registradas")
@@ -191,7 +181,7 @@ def pantalla_staff():
             else:
                 st.info("Aún no hay datos de RPE registrados.")
         except Exception as e:
-            st.dataframe(pd.DataFrame())
+            st.info("Cargando datos...")
             
     st.divider()
     st.button("Cerrar sesión", on_click=logout)
