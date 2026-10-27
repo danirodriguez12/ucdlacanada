@@ -151,13 +151,12 @@ def pantalla_jugador():
     st.button("Cerrar sesión", on_click=logout)
 
 def color_semaforo_tqr(val):
-    # Si la cadena empieza por números bajos (1 o 3), pinta rojo/ámbar; altos (7 o 9) verde
     if str(val).startswith("1") or str(val).startswith("3"):
-        return 'background-color: #ffcccc; color: #990000' # Rojo alerta
+        return 'background-color: #ffcccc; color: #990000'
     elif str(val).startswith("5"):
-        return 'background-color: #ffe5cc; color: #b35900' # Ámbar precaución
+        return 'background-color: #ffe5cc; color: #b35900'
     else:
-        return 'background-color: #d4edda; color: #155724' # Verde OK
+        return 'background-color: #d4edda; color: #155724'
 
 def pantalla_staff():
     try:
@@ -174,24 +173,25 @@ def pantalla_staff():
         st.subheader("Estado de recuperación de la plantilla")
         try:
             df_tqr = pd.read_csv(CSV_TQR_URL)
+            st.write(f"Total registros: **{len(df_tqr)}**")
             if not df_tqr.empty:
-                # Mostramos los últimos registros con formato visual de semáforo aplicado
                 st.dataframe(df_tqr.tail(20).style.applymap(color_semaforo_tqr, subset=['¿Cómo te sientes de recuperado en este momento?']), use_container_width=True)
             else:
                 st.info("Aún no hay datos de TQR registrados.")
         except Exception as e:
-            st.info("Publica tu Google Sheets en la web para activar los semáforos automáticos.")
+            st.dataframe(pd.DataFrame())
             
     with tab_s2:
         st.subheader("Cargas e intensidades registradas")
         try:
             df_rpe = pd.read_csv(CSV_RPE_URL)
+            st.write(f"Total registros: **{len(df_rpe)}**")
             if not df_rpe.empty:
                 st.dataframe(df_rpe.tail(20), use_container_width=True)
             else:
                 st.info("Aún no hay datos de RPE registrados.")
         except Exception as e:
-            st.info("Asegúrate de haber publicado la hoja en la web.")
+            st.dataframe(pd.DataFrame())
             
     st.divider()
     st.button("Cerrar sesión", on_click=logout)
