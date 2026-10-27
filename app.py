@@ -5,8 +5,12 @@ import requests
 
 st.set_page_config(page_title="Control de Carga - UCD La Cañada", page_icon="⚽", layout="centered")
 
-# URL de tu aplicación web de Google Apps Script
+# URL de tu aplicación web de Google Apps Script para recibir los envíos
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxLBVTUkg7nZDs2oPmd94YOUXzUQ9KXD3tFCfnQAlwC5koz9uFdFJIP-N3aHooG7nww3Q/exec"
+
+# Enlaces CSV directos de tus pestañas publicadas en Google Sheets (para el panel de staff)
+CSV_TQR_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?output=csv&sheet=Import_TQR"
+CSV_RPE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?output=csv&sheet=Import_RPE"
 
 # Base de datos interna de usuarios (staff y los 27 jugadores exactos)
 USUARIOS = {
@@ -156,8 +160,34 @@ def pantalla_staff():
         
     st.header("Panel de control: área de performance")
     st.write(f"Bienvenido, {st.session_state['usuario_actual']}")
-    st.info("💡 Consejo para el jueves: Abre tu Google Sheets en una pestaña al lado del proyector para ver cómo entran los datos en directo al pulsar los botones.")
     
+    st.subheader("📊 Base de datos en tiempo real")
+    
+    tab_s1, tab_s2 = st.tabs(["🌤️ Registros TQR (Mañana)", "🏃‍♂️ Registros RPE (Post-entreno)"])
+    
+    with tab_s1:
+        try:
+            df_tqr = pd.read_csv(CSV_TQR_URL)
+            st.write(f"Total registros de recuperación: **{len(df_tqr)}**")
+            if not df_tqr.empty:
+                st.dataframe(df_tqr.tail(15), use_container_width=True)
+            else:
+                st.info("Aún no hay datos de TQR registrados.")
+        except Exception as e:
+            st.info("Asegúrate de haber publicado la hoja en la web (Archivo > Compartir > Publicar en la web).")
+            
+    with tab_s2:
+        try:
+            df_rpe = pd.read_csv(CSV_RPE_URL)
+            st.write(f"Total registros de carga: **{len(df_rpe)}**")
+            if not df_rpe.empty:
+                st.dataframe(df_rpe.tail(15), use_container_width=True)
+            else:
+                st.info("Aún no hay datos de RPE registrados.")
+        except Exception as e:
+            st.info("Asegúrate de haber publicado la hoja en la web.")
+            
+    st.divider()
     st.button("Cerrar sesión", on_click=logout)
 
 if st.session_state["usuario_actual"] is None:
