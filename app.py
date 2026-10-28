@@ -23,14 +23,10 @@ st.set_page_config(
 
 CLUB = "UCD La Cañada Atlético"
 CSV_TQR_URL = (
-    "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/"
-    "pub?output=csv&sheet=Import_TQR"
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pubhtml?gid=0&single=true"
 )
 CSV_RPE_URL = (
-    "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/"
-    "pub?output=csv&sheet=Import_RPE"
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pubhtml?gid=1&single=true"
 )
 
 ROSTER = [
