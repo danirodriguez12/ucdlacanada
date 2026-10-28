@@ -104,6 +104,7 @@ def fetch_csv(url: str) -> pd.DataFrame:
     from io import StringIO
     st.write("Primeras líneas recibidas de Google Sheets:")
 st.code("\n".join(response.text.splitlines()[:10]))
+return pd.read_csv(StringIO(response.text), engine="python", on_bad_lines="warn")
 
 
 @st.cache_data(ttl=90, show_spinner=False)
