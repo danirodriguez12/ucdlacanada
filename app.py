@@ -102,7 +102,8 @@ def fetch_csv(url: str) -> pd.DataFrame:
     response.raise_for_status()
     response.encoding = response.apparent_encoding or "utf-8"
     from io import StringIO
-    return pd.read_csv(StringIO(response.text), engine="python", on_bad_lines="warn")
+    st.write("Primeras líneas recibidas de Google Sheets:")
+st.code("\n".join(response.text.splitlines()[:10]))
 
 
 @st.cache_data(ttl=90, show_spinner=False)
