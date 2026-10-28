@@ -98,7 +98,10 @@ def logout() -> None:
 
 def fetch_csv(url: str) -> pd.DataFrame:
     """Lee CSV publicado con timeout; el resultado se cachea brevemente."""
-    response = requests.get(url, timeout=15)
+    response = requests.get(url, timeout=20)
+    st.write("Código de respuesta:", response.status_code)
+    st.write("URL final:", response.url)
+    st.write("Contenido recibido:", response.text[:500])
     response.raise_for_status()
     response.encoding = response.apparent_encoding or "utf-8"
     from io import StringIO
