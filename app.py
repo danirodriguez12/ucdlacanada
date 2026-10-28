@@ -102,7 +102,7 @@ def fetch_csv(url: str) -> pd.DataFrame:
     response.raise_for_status()
     response.encoding = response.apparent_encoding or "utf-8"
     from io import StringIO
-    return pd.read_csv(StringIO(response.text))
+    return pd.read_csv(StringIO(response.text), sep=None, engine="python")
 
 
 @st.cache_data(ttl=90, show_spinner=False)
