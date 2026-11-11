@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import io
 import html
 import math
 import unicodedata
@@ -23,12 +22,13 @@ import streamlit as st
 # -------------------------------------------------------------------
 st.set_page_config(
     page_title="UCD La Cañada | Control de carga",
-    page_icon="⚽",
+    page_icon="🔴",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 CLUB = "UCD La Cañada Atlético"
+APP_VERSION = "4.0 · Revisión para pruebas del club"
 CSV_TQR_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?gid=0&single=true&output=csv"
 )
@@ -82,29 +82,29 @@ DEFAULT_STAFF = ["Manuelcarminati", "Danirodriguez", "Nicorodriguez", "Danimoren
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
-:root{--navy:#142742;--red:#e44855;--muted:#66768b;--line:#e3e9f1;--surface:#ffffff}
-.stApp{background:#f3f6fb;color:#172a44;font-family:'DM Sans',sans-serif}
+:root{--navy:#2a1a1d;--red:#c81f32;--muted:#70656a;--line:#f0e2e5;--surface:#ffffff}
+.stApp{background:#fcf8f9;color:#2a1a1d;font-family:'DM Sans',sans-serif}
 .block-container{max-width:1540px;padding-top:1.4rem;padding-bottom:3rem}
-h1,h2,h3{color:#142742;font-family:'Space Grotesk',sans-serif;letter-spacing:-.025em}
-[data-testid="stSidebar"]{background:#12233c}
+h1,h2,h3{color:#361d23;font-family:'Space Grotesk',sans-serif;letter-spacing:-.025em}
+[data-testid="stSidebar"]{background:linear-gradient(180deg,#8f1225 0%,#ba1c30 58%,#6f1120 100%)}
 [data-testid="stSidebar"] *{color:#e8edf6!important}
-[data-testid="stSidebar"] [data-baseweb="select"] *{color:#142742!important}
-.hero{background:linear-gradient(115deg,#142742 0%,#244467 72%,#a53b4d 150%);padding:1.7rem 2rem;border-radius:18px;color:#fff;margin-bottom:1.3rem;box-shadow:0 12px 32px #14274218}
+[data-testid="stSidebar"] [data-baseweb="select"] *{color:#2a1a1d!important}
+.hero{background:linear-gradient(112deg,#8c1022 0%,#c81f32 68%,#e25462 125%);padding:1.7rem 2rem;border-radius:18px;color:#fff;margin-bottom:1.3rem;box-shadow:0 12px 32px #9d1b2f21}
 .hero h1{color:#fff;margin:0;font-size:2rem}
 .hero p{color:#dbe5f3;margin:.45rem 0 0}
 .kpi{border:1px solid var(--line);border-radius:15px;padding:1rem 1.15rem;background:#fff;min-height:108px}
 .kpi-label{font-size:.8rem;color:var(--muted)}
 .kpi-value{font-size:1.8rem;font-weight:800;color:var(--navy)}
 .kpi-note{font-size:.78rem;color:var(--muted)}
-div[data-testid="stMetric"]{background:#fff;border:1px solid var(--line);padding:14px 16px;border-radius:14px;box-shadow:0 3px 14px #14274208}
+div[data-testid="stMetric"]{background:#fff;border:1px solid var(--line);padding:14px 16px;border-radius:14px;box-shadow:0 3px 14px #9d1b2f10}
 [data-testid="stMetricLabel"]{font-weight:650}
 [data-testid="stTabs"] button{font-weight:650}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
-.section-kicker{font-size:.78rem;letter-spacing:.11em;font-weight:800;color:#a33a49;text-transform:uppercase;margin-bottom:.25rem}
+.section-kicker{font-size:.78rem;letter-spacing:.11em;font-weight:800;color:#b51c30;text-transform:uppercase;margin-bottom:.25rem}
 </style>
 """, unsafe_allow_html=True)
 
-NAVY, RED, TEAL, LIGHT = "#142742", "#e44855", "#168c92", "#e7edf4"
+NAVY, RED, TEAL, LIGHT = "#351d23", "#c81f32", "#a64a58", "#f5e7ea"
 
 def chart_style(fig, height=360):
     fig.update_layout(template="plotly_white", height=height, margin=dict(l=14,r=18,t=32,b=18),
@@ -120,11 +120,11 @@ def chart_style(fig, height=360):
 def plot_daily(data, title="Carga diaria", show_mean=True):
     fig=go.Figure()
     if not data.empty:
-        fig.add_bar(x=data["Día"],y=data["Carga"],name="Carga (UA)",marker_color=TEAL,
+        fig.add_bar(x=data["Día"],y=data["Carga"],name="Carga (UA)",marker_color=RED,
                     hovertemplate="%{x|%d/%m/%Y}<br>%{y:,.0f} UA<extra></extra>")
         if show_mean:
             avg=data["Carga"].mean()
-            fig.add_hline(y=avg,line_color=RED,line_dash="dot",
+            fig.add_hline(y=avg,line_color="#7a3744",line_dash="dot",
                           annotation_text=f"Media {avg:,.0f} UA",annotation_position="top left")
     fig.update_layout(title=dict(text=title,font_size=17),bargap=.32,yaxis_title="UA")
     return chart_style(fig)
@@ -132,7 +132,7 @@ def plot_daily(data, title="Carga diaria", show_mean=True):
 
 def plot_wellness(df):
     fig=go.Figure()
-    for col,color in [("TQR",TEAL),("Sueño","#5677c5"),("DOMS",RED),("Estrés","#d69a31")]:
+    for col,color in [("TQR",TEAL),("Sueño","#8b6278"),("DOMS",RED),("Estrés","#b88c52")]:
         if col in df:
             fig.add_trace(go.Scatter(x=df["Fecha"],y=df[col],mode="lines+markers",name=col,
                                      line=dict(color=color,width=2),marker=dict(size=6)))
@@ -527,62 +527,6 @@ def microcycle_table(sessions, match_day):
     return out[["Fecha","Día relativo","Tipo","Etiqueta","Rival","Notas"]]
 
 
-def pdf_weekly(player, profile, rpe, tqr, end_date):
-    # PDF exclusivamente en memoria; no persiste ni envía información.
-    from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle,KeepTogether
-    from reportlab.lib.styles import getSampleStyleSheet,ParagraphStyle
-    from reportlab.lib.colors import HexColor,white
-    from reportlab.lib.enums import TA_LEFT
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    buff=io.BytesIO()
-    doc=SimpleDocTemplate(buff,pagesize=A4,rightMargin=1.8*cm,leftMargin=1.8*cm,
-                          topMargin=1.8*cm,bottomMargin=1.8*cm)
-    styles=getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="ClubTitle",parent=styles["Title"],fontName="Helvetica-Bold",fontSize=20,
-                              leading=25,textColor=HexColor(NAVY),spaceAfter=8,alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="ClubBody",parent=styles["BodyText"],fontSize=9.5,leading=14,spaceAfter=9))
-    name=" ".join(str(profile.get(k,"")).strip() for k in ("Nombre","Apellidos")).strip() or player
-    daily,total,monotony,strain=weekly_metrics(rpe,player,end_date)
-    start=(pd.Timestamp(end_date)-pd.Timedelta(days=6)).date()
-    filtered=rpe[(rpe["Jugador"].map(player_key)==player_key(player)) &
-                 (rpe["Fecha"].dt.date>=start)&(rpe["Fecha"].dt.date<=end_date)].copy() if not rpe.empty else rpe.copy()
-    own_tqr=tqr[(tqr["Jugador"].map(player_key)==player_key(player)) &
-                (tqr["Fecha"].dt.date>=start)&(tqr["Fecha"].dt.date<=end_date)].copy() if not tqr.empty else tqr.copy()
-    p=lambda t: Paragraph(html.escape(str(t)),styles["ClubBody"])
-    story=[Paragraph("UCD LA CAÑADA ATLÉTICO",styles["ClubTitle"]),
-           p("INFORME INDIVIDUAL · CONTROL DE CARGA"),
-           p(f"Futbolista: {name} | Periodo: {start:%d/%m/%Y} – {end_date:%d/%m/%Y}"),
-           Spacer(1,10)]
-    rows=[["Carga 7 días","Sesiones","RPE medio","Monotonía","Strain"],
-          [f"{total:,.0f} UA",str(len(filtered)),
-           f"{filtered['RPE'].mean():.1f}" if not filtered.empty else "—",
-           f"{monotony:.2f}" if monotony is not None else "N/D",
-           f"{strain:,.0f}" if strain is not None else "N/D"]]
-    table=Table(rows,colWidths=[3.2*cm]*5,rowHeights=[.8*cm,.9*cm]);table.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),HexColor(NAVY)),("TEXTCOLOR",(0,0),(-1,0),white),
-        ("BACKGROUND",(0,1),(-1,1),HexColor("#edf3f8")),
-        ("TEXTCOLOR",(0,1),(-1,1),HexColor(NAVY)),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-        ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),9),
-        ("BOTTOMPADDING",(0,0),(-1,-1),9)]))
-    story += [table,Spacer(1,18),p("CARGA DIARIA (UA)")]
-    day_rows=[["Día","Carga (UA)"]]+[[d.strftime("%d/%m/%Y"),f"{v:,.0f}"] for d,v in daily.items()]
-    day_table=Table(day_rows,colWidths=[8*cm,8*cm]);day_table.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),HexColor("#e6edf5")),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1),[white,HexColor("#f6f8fb")]),
-        ("FONTSIZE",(0,0),(-1,-1),9),("BOTTOMPADDING",(0,0),(-1,-1),6),
-        ("TOPPADDING",(0,0),(-1,-1),6)]))
-    story += [day_table,Spacer(1,14),p(f"Bienestar: {len(own_tqr)} respuestas registradas durante el periodo."),
-              p("Monotonía = media de la carga diaria / desviación estándar poblacional de 7 días. "
-                "Strain = carga semanal × monotonía. Si la desviación es cero, se informa N/D. "
-                "Los días sin registro se contabilizan como 0 UA registradas; no confirman descanso. "
-                "Indicadores descriptivos, no diagnósticos de lesión."),
-              p("Fuente: registros disponibles de Google Sheets (RPE y TQR). "
-                "La ausencia de registro no implica ausencia de entrenamiento.")]
-    doc.build(story)
-    return buff.getvalue()
-
-
 def participation_panel(rpe, players, sessions):
     st.markdown('<div class="section-kicker">Seguimiento operativo</div>',unsafe_allow_html=True)
     st.subheader("Control de participación · registros RPE")
@@ -657,7 +601,7 @@ def microcycles_panel(sessions):
     else:
         st.dataframe(micro,hide_index=True,use_container_width=True)
         counts=micro.groupby("Día relativo").size().reset_index(name="Sesiones")
-        fig=px.bar(counts,x="Día relativo",y="Sesiones",color_discrete_sequence=[TEAL],text="Sesiones")
+        fig=px.bar(counts,x="Día relativo",y="Sesiones",color_discrete_sequence=[RED],text="Sesiones")
         fig.update_layout(title="Distribución del microciclo")
         st.plotly_chart(chart_style(fig,310),use_container_width=True)
 
@@ -691,33 +635,9 @@ def analytics_panel(rpe, tqr, players):
         comp=pd.DataFrame(rows).sort_values("Carga 7d",ascending=False)
         st.dataframe(comp,use_container_width=True,hide_index=True)
         fig=px.bar(comp.head(15).sort_values("Carga 7d"),x="Carga 7d",y="Jugador",orientation="h",
-                   color_discrete_sequence=[TEAL],text="Carga 7d")
+                   color_discrete_sequence=[RED],text="Carga 7d")
         fig.update_layout(title="Carga semanal · 15 primeras cargas registradas")
         st.plotly_chart(chart_style(fig,480),use_container_width=True)
-
-
-def reports_panel(rpe,tqr,profiles,players):
-    st.markdown('<div class="section-kicker">Documentación</div>',unsafe_allow_html=True)
-    st.subheader("Informe individual semanal · PDF")
-    if not players:
-        st.info("Sin futbolistas disponibles.")
-        return
-    player=st.selectbox("Futbolista",players,key="pdf_player")
-    end_date=st.date_input("Fecha de cierre",value=date.today(),key="pdf_end")
-    st.caption("Informe de 7 días con carga, sesiones, distribución diaria, monotonía y strain. No se almacena ni envía a terceros.")
-    if st.button("Preparar informe PDF",type="primary"):
-        try:
-            pdf=pdf_weekly(player,player_profile(player,profiles),rpe,tqr,end_date)
-            st.session_state["weekly_pdf"]=(player,end_date,pdf)
-        except ImportError:
-            st.error("Falta la dependencia reportlab. Añade reportlab>=4.0 a requirements.txt.")
-        except Exception as exc:
-            st.error(f"No se ha podido generar el informe: {exc}")
-    if "weekly_pdf" in st.session_state:
-        pdf_player,pdf_date,pdf_bytes=st.session_state["weekly_pdf"]
-        st.download_button(f"Descargar PDF · {pdf_player}",pdf_bytes,
-                           file_name=f"informe_{player_key(pdf_player).replace(' ','_')}_{pdf_date}.pdf",
-                           mime="application/pdf",use_container_width=True)
 
 
 def staff_portal() -> None:
@@ -726,7 +646,7 @@ def staff_portal() -> None:
     st.caption(f"Bienvenido, {st.session_state['user']} · {date.today().strftime('%d/%m/%Y')}")
     refresh_col, logout_col = st.columns([5, 1])
     with refresh_col:
-        st.caption("Datos de Google Sheets · actualización automática de caché cada 90 segundos")
+        st.caption(f"{APP_VERSION} · Google Sheets · caché de lectura de 90 segundos")
     with logout_col:
         st.button("Cerrar sesión", on_click=logout)
 
@@ -744,8 +664,8 @@ def staff_portal() -> None:
         return
 
     with st.sidebar:
-        st.markdown("### Primer equipo")
-        section = st.radio("Área", ["Panel de rendimiento", "Jugadores", "Participación RPE", "Análisis semanal", "Microciclos", "Informes PDF"], key="staff_section")
+        st.markdown("### 🔴 Primer equipo")
+        section = st.radio("Área", ["Panel de rendimiento", "Jugadores", "Participación RPE", "Análisis semanal", "Microciclos"], key="staff_section")
 
     profiles = load_profiles()
     players = sorted((set(ROSTER) | set(profiles["Usuario"].dropna()) |
@@ -761,9 +681,6 @@ def staff_portal() -> None:
         return
     if section == "Microciclos":
         microcycles_panel(sessions)
-        return
-    if section == "Informes PDF":
-        reports_panel(rpe,tqr,profiles,players)
         return
 
     if section == "Jugadores":
@@ -898,7 +815,7 @@ def staff_portal() -> None:
         with b:
             types=recent_rpe.groupby("Tipo",as_index=False)["Carga"].sum().sort_values("Carga",ascending=False)
             fig=px.pie(types,values="Carga",names="Tipo",hole=.68,
-                       color_discrete_sequence=[NAVY,TEAL,RED,"#7897b2","#d3a34a","#8794a9"])
+                       color_discrete_sequence=[RED,"#f07584","#7e2335","#b88492","#d3a0a9","#754952"])
             fig.update_layout(title="Distribución de carga por tipo",showlegend=True)
             fig.update_traces(textinfo="percent",hovertemplate="%{label}: %{value:,.0f} UA<extra></extra>")
             st.plotly_chart(chart_style(fig),use_container_width=True)
@@ -923,7 +840,7 @@ def staff_portal() -> None:
                     TQR_medio=("TQR", "mean"), Respuestas=("Jugador", "nunique")
                 ).reset_index(names="Fecha")
                 fig=px.line(daily,x="Fecha",y="TQR_medio",markers=True,
-                            color_discrete_sequence=[TEAL],title="Evolución del TQR medio")
+                            color_discrete_sequence=[RED],title="Evolución del TQR medio")
                 fig.update_traces(line_width=3,marker_size=8)
                 st.plotly_chart(chart_style(fig),use_container_width=True)
     with tab2:
