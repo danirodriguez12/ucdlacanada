@@ -438,12 +438,12 @@ def staff_portal() -> None:
 
     if section == "Jugadores":
         profiles = load_profiles()
-        players = sorted(set(ROSTER) | set(profiles["Usuario"].dropna()) |
-                         set(tqr.get("Jugador", pd.Series(dtype=str)).dropna()) |
-                         set(rpe.get("Jugador", pd.Series(dtype=str)).dropna()))
-        st.subheader("Primer equipo · Jugadores")
-        st.caption("Fichas de plantilla. Los campos personales se completan en jugadores.csv; no se inventan datos.")
-        search = st.text_input("Buscar jugador", placeholder="Nombre o apellidos")
+        players = sorted((set(ROSTER) | set(profiles["Usuario"].dropna()) |
+                          set(tqr.get("Jugador", pd.Series(dtype=str)).dropna()) |
+                          set(rpe.get("Jugador", pd.Series(dtype=str)).dropna())) - {""})
+        st.subheader("Primer equipo · Gestión de plantilla")
+        st.caption("Fichas, carga individual y edición de datos. Los cambios de fichas se exportan a CSV para conservarlos en el repositorio.")
+        search = st.text_input("Buscar jugador", placeholder="Usuario, nombre o apellidos")
         filtered = [u for u in players if search.casefold() in
                     (u + " " + player_profile(u, profiles).get("Nombre", "") + " " +
                      player_profile(u, profiles).get("Apellidos", "")).casefold()]
@@ -451,27 +451,72 @@ def staff_portal() -> None:
             st.info("No hay jugadores que coincidan con la búsqueda.")
             return
         selected = st.selectbox("Seleccionar futbolista", filtered)
-        info = player_profile(selected, profiles)
+        if "profiles_edit" not in st.session_state:
+            st.session_state["profiles_edit"] = profiles.copy()
+        working = st.session_state["profiles_edit"]
+        info = player_profile(selected, working)
         name = " ".join(x for x in [info.get("Nombre", ""), info.get("Apellidos", "")] if x).strip() or selected
         st.markdown(f"### {name}")
-        a, b, c = st.columns(3)
-        a.metric("Edad", age_from_birthdate(info.get("Fecha_nacimiento", "")))
-        b.metric("Posición", info.get("Posicion") or "Sin completar")
-        c.metric("Dorsal", info.get("Dorsal") or "Sin completar")
-        st.caption(f"Usuario de acceso: {selected}")
-        own_rpe = rpe[rpe["Jugador"].str.casefold() == selected.casefold()] if not rpe.empty else rpe
-        own_tqr = tqr[tqr["Jugador"].str.casefold() == selected.casefold()] if not tqr.empty else tqr
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Sesiones RPE", len(own_rpe))
-        c2.metric("Carga acumulada", f"{own_rpe['Carga'].sum():.0f} UA" if not own_rpe.empty else "0 UA")
-        c3.metric("Respuestas bienestar", len(own_tqr))
-        if not own_rpe.empty:
-            st.markdown("**Histórico de carga interna**")
-            st.bar_chart(own_rpe.set_index("Fecha")[["Carga"]].tail(60))
-            st.dataframe(own_rpe[["Fecha", "RPE", "Minutos", "Carga", "Tipo"]].sort_values("Fecha", ascending=False),
-                         use_container_width=True, hide_index=True)
-        else:
-            st.info("Este futbolista todavía no tiene sesiones RPE reconocidas.")
+        profile_tab, performance_tab, edit_tab = st.tabs(["Ficha", "Rendimiento", "Editar ficha"])
+        own_rpe = rpe[rpe["Jugador"].astype(str).str.casefold() == selected.casefold()].copy() if not rpe.empty else rpe.copy()
+        own_tqr = tqr[tqr["Jugador"].astype(str).str.casefold() == selected.casefold()].copy() if not tqr.empty else tqr.copy()
+        with profile_tab:
+            a, b, c = st.columns(3)
+            a.metric("Edad", age_from_birthdate(info.get("Fecha_nacimiento", "")))
+            b.metric("Posición", info.get("Posicion") or "Sin completar")
+            c.metric("Dorsal", info.get("Dorsal") or "Sin completar")
+            st.write(f"**Nombre:** {info.get('Nombre') or 'Sin completar'}")
+            st.write(f"**Apellidos:** {info.get('Apellidos') or 'Sin completar'}")
+            st.write(f"**Fecha de nacimiento:** {info.get('Fecha_nacimiento') or 'Sin completar'}")
+            st.caption(f"Identificador de acceso: {selected}")
+        with performance_tab:
+            st.markdown("#### Carga interna · RPE × minutos")
+            end_date = st.date_input("Fecha de referencia", value=date.today(), key="player_end_date")
+            end_ts = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+            metrics = st.columns(3)
+            for col, window in zip(metrics, (7, 14, 28)):
+                cutoff = pd.Timestamp(end_date) - pd.Timedelta(days=window-1)
+                window_rpe = own_rpe[(own_rpe["Fecha"] >= cutoff) & (own_rpe["Fecha"] <= end_ts)] if not own_rpe.empty else own_rpe
+                col.metric(f"Últimos {window} días", f"{window_rpe['Carga'].sum():.0f} UA", f"{len(window_rpe)} sesiones", delta_color="off")
+            a, b, c = st.columns(3)
+            a.metric("Sesiones registradas", len(own_rpe))
+            b.metric("Carga total histórica", f"{own_rpe['Carga'].sum():.0f} UA" if not own_rpe.empty else "0 UA")
+            c.metric("Respuestas de bienestar", len(own_tqr))
+            if not own_rpe.empty:
+                chart_rpe = own_rpe.copy()
+                chart_rpe["Día"] = chart_rpe["Fecha"].dt.date
+                daily = chart_rpe.groupby("Día", as_index=False)["Carga"].sum()
+                st.plotly_chart(px.bar(daily, x="Día", y="Carga", title="Evolución diaria de la carga interna"), use_container_width=True)
+                st.dataframe(own_rpe[["Fecha", "RPE", "Minutos", "Carga", "Tipo"]].sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay sesiones RPE reconocidas para este futbolista. Comprueba la coincidencia del nombre de usuario con Google Sheets.")
+            if not own_tqr.empty:
+                st.markdown("#### Evolución del bienestar")
+                wellness_cols = [c for c in ["TQR", "Sueño", "DOMS", "Estrés"] if c in own_tqr]
+                if wellness_cols:
+                    st.line_chart(own_tqr.set_index("Fecha")[wellness_cols].tail(60))
+        with edit_tab:
+            st.info("La edición se mantiene durante esta sesión. Descarga el CSV y sustituye jugadores.csv en GitHub para guardar los cambios de forma permanente. No modifica Google Sheets ni los registros de carga.")
+            with st.form("edit_player_profile"):
+                first = st.text_input("Nombre", value=info.get("Nombre", ""))
+                last = st.text_input("Apellidos", value=info.get("Apellidos", ""))
+                birth = st.text_input("Fecha de nacimiento (DD/MM/AAAA)", value=info.get("Fecha_nacimiento", ""))
+                position = st.text_input("Posición", value=info.get("Posicion", ""))
+                number = st.text_input("Dorsal", value=info.get("Dorsal", ""))
+                save = st.form_submit_button("Aplicar cambios a la plantilla", type="primary")
+            if save:
+                if birth.strip() and pd.isna(pd.to_datetime(birth, dayfirst=True, errors="coerce")):
+                    st.error("La fecha de nacimiento no es válida. Usa DD/MM/AAAA.")
+                else:
+                    row = {"Usuario": selected, "Nombre": first.strip(), "Apellidos": last.strip(),
+                           "Fecha_nacimiento": birth.strip(), "Posicion": position.strip(), "Dorsal": number.strip()}
+                    working = working[working["Usuario"].str.casefold() != selected.casefold()].copy()
+                    working = pd.concat([working, pd.DataFrame([row])], ignore_index=True)
+                    st.session_state["profiles_edit"] = working
+                    st.success("Cambios aplicados en esta sesión. Descarga el CSV para conservarlos.")
+            st.download_button("Descargar jugadores.csv actualizado",
+                               data=st.session_state["profiles_edit"].to_csv(index=False).encode("utf-8-sig"),
+                               file_name="jugadores.csv", mime="text/csv", use_container_width=True)
         return
 
     if tqr.empty and rpe.empty:
