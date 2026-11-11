@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import Any
 
@@ -36,6 +37,39 @@ ROSTER = [
     "Pablo Céspedes", "Akram", "Ettibary", "Pita", "Miguel Prado",
     "Iker Soriano", "Ortega", "Alberto",
 ]
+# Fichas opcionales: completar jugadores.csv en el repositorio, sin cambiar
+# usuarios, contraseñas ni datos históricos de Google Sheets.
+PLAYER_PROFILE_FILE = Path(__file__).with_name("jugadores.csv")
+
+@st.cache_data(ttl=90, show_spinner=False)
+def load_profiles() -> pd.DataFrame:
+    columns = ["Usuario", "Nombre", "Apellidos", "Fecha_nacimiento", "Posicion", "Dorsal"]
+    if not PLAYER_PROFILE_FILE.exists():
+        return pd.DataFrame(columns=columns)
+    df = pd.read_csv(PLAYER_PROFILE_FILE, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    df.columns = [str(c).strip() for c in df.columns]
+    for col in columns:
+        if col not in df.columns:
+            df[col] = ""
+    df["Usuario"] = df["Usuario"].astype(str).str.strip()
+    return df[columns]
+
+
+def player_profile(username: str, profiles: pd.DataFrame) -> dict[str, str]:
+    matches = profiles[profiles["Usuario"].str.casefold() == username.casefold()]
+    if matches.empty:
+        return {"Usuario": username, "Nombre": username, "Apellidos": "", "Fecha_nacimiento": "", "Posicion": "", "Dorsal": ""}
+    return matches.iloc[0].to_dict()
+
+
+def age_from_birthdate(value: str) -> str:
+    birth = pd.to_datetime(value, errors="coerce", dayfirst=True)
+    if pd.isna(birth):
+        return "Sin completar"
+    today = date.today()
+    return str(today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day)))
+
+
 DEFAULT_STAFF = ["Manuelcarminati", "Danirodriguez", "Nicorodriguez", "Danimoreno"]
 
 # Estética adaptada a la referencia visual del club.
@@ -156,25 +190,46 @@ def normalize_tqr(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_rpe(df: pd.DataFrame) -> pd.DataFrame:
+    """Interpreta tanto las cabeceras del formulario como las del envío web.
+
+    No crea ni altera filas en Google Sheets. Solo transforma datos para lectura.
+    """
+    expected = ["Fecha", "Jugador", "RPE", "Minutos", "Carga", "Tipo", "Observaciones"]
     if df.empty:
-        return df.copy()
+        return pd.DataFrame(columns=expected)
     out = df.copy()
-    time_col = find_col(out, "marca temporal")
-    name_col = find_col(out, "nombre")
-    rpe_col = find_col(out, "percepción del esfuerzo")
-    mins_col = find_col(out, "duración")
-    type_col = find_col(out, "tipo de sesión")
+    time_col = find_col(out, "marca temporal") or find_col(out, "fecha")
+    name_col = find_col(out, "nombre") or find_col(out, "jugador") or find_col(out, "usuario")
+    rpe_col = find_col(out, "percepción del esfuerzo") or find_col(out, "rpe") or find_col(out, "esfuerzo")
+    mins_col = find_col(out, "duración") or find_col(out, "minutos")
+    type_col = find_col(out, "tipo de sesión") or find_col(out, "tipo")
     obs_col = find_col(out, "observaciones")
-    if not time_col or not name_col:
-        return pd.DataFrame()
-    out["Fecha"] = pd.to_datetime(out[time_col], errors="coerce", dayfirst=True)
-    out["Jugador"] = out[name_col].astype(str).str.strip()
-    out["RPE"] = out[rpe_col].map(extract_scale) if rpe_col else pd.NA
-    out["Minutos"] = pd.to_numeric(out[mins_col], errors="coerce") if mins_col else 0
+    # Cuando la pestaña usa títulos genéricos, se respeta el orden exacto del
+    # payload actual: fecha, jugador, RPE, tipo, minutos, observaciones.
+    if len(out.columns) >= 6 and (not time_col or not name_col or not rpe_col or not mins_col):
+        cols = list(out.columns)
+        time_col = time_col or cols[0]
+        name_col = name_col or cols[1]
+        rpe_col = rpe_col or cols[2]
+        type_col = type_col or cols[3]
+        mins_col = mins_col or cols[4]
+        obs_col = obs_col or cols[5]
+    if not all([time_col, name_col, rpe_col, mins_col]):
+        return pd.DataFrame(columns=expected)
+    # Los nuevos envíos usan formato ISO; los antiguos pueden ser dd/mm/aaaa.
+    raw_dates = out[time_col].astype(str).str.strip()
+    dates_iso = pd.to_datetime(raw_dates, format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    dates_local = pd.to_datetime(raw_dates, dayfirst=True, errors="coerce", format="mixed")
+    out["Fecha"] = dates_iso.fillna(dates_local)
+    out["Jugador"] = out[name_col].fillna("").astype(str).str.strip()
+    out["RPE"] = pd.to_numeric(out[rpe_col].map(extract_scale), errors="coerce")
+    out["Minutos"] = pd.to_numeric(out[mins_col], errors="coerce")
     out["Carga"] = out["RPE"] * out["Minutos"]
     out["Tipo"] = out[type_col].fillna("Sin especificar").astype(str) if type_col else "Sin especificar"
     out["Observaciones"] = out[obs_col].fillna("").astype(str) if obs_col else ""
-    return out.dropna(subset=["Fecha", "Jugador"]).sort_values("Fecha")
+    out = out.dropna(subset=["Fecha", "RPE", "Minutos"])
+    out = out[out["Jugador"].ne("")]
+    return out.sort_values("Fecha")
 
 
 def submit_to_sheet(sheet_name: str, row: list[Any]) -> tuple[bool, str]:
@@ -191,11 +246,14 @@ def submit_to_sheet(sheet_name: str, row: list[Any]) -> tuple[bool, str]:
         # Apps Script puede devolver texto o JSON según su implementación.
         try:
             body = response.json()
-            if isinstance(body, dict) and body.get("success") is False:
-                return False, str(body.get("message", "El servidor rechazó el registro."))
+            if isinstance(body, dict):
+                if body.get("status") == "error" or body.get("success") is False:
+                    return False, str(body.get("message", "El servidor rechazó el registro."))
+                if body.get("status") != "success" and body.get("success") is not True:
+                    return False, "Respuesta inesperada del servidor. Comprueba la hoja antes de repetir."
         except ValueError:
-            pass
-        return True, "Registro enviado. Comprueba la hoja si no aparece de inmediato."
+            return False, "El servidor no devolvió una confirmación JSON. Comprueba la hoja antes de repetir."
+        return True, "Registro confirmado por el servidor."
     except requests.RequestException as exc:
         return False, f"No se pudo confirmar el envío: {exc}. No vuelvas a enviarlo sin comprobar la hoja."
 
@@ -281,19 +339,26 @@ def player_portal() -> None:
             with st.spinner("Enviando respuesta…"):
                 ok, message = submit_to_sheet("Import_TQR", payload)
             (st.success if ok else st.error)(message)
+            if ok:
+                load_data.clear()
 
     with rpe_tab:
         st.subheader("Carga de la sesión")
         with st.form("rpe_form", clear_on_submit=False):
             effort = st.select_slider(
                 "¿Cómo de exigente ha sido la sesión?",
-                options=[1, 2, 3, 5, 7, 10], value=3,
+                options=list(range(1, 11)), value=3,
                 format_func=lambda x: {
                     1: "1 · Muy ligero", 2: "2 · Ligero", 3: "3 · Moderado",
-                    5: "5 · Duro", 7: "7 · Muy duro", 10: "10 · Máximo",
+                    4: "4 · Moderado +", 5: "5 · Duro", 6: "6 · Duro +",
+                    7: "7 · Muy duro", 8: "8 · Muy duro +",
+                    9: "9 · Muy muy duro", 10: "10 · Máximo",
                 }[x],
             )
-            session_type = st.selectbox("Tipo de sesión", ["Campo", "Gimnasio", "Recuperación", "Partido", "Otro"])
+            session_type = st.selectbox("Tipo de sesión", [
+                "Campo", "Gimnasio", "Sesión de gimnasio + sesión de campo",
+                "Entrenamiento porteros + sesión de campo", "Partido", "Otro"
+            ])
             minutes = st.number_input("Duración total (minutos)", min_value=0, max_value=240, value=90, step=5)
             observations = st.text_area("Observaciones o molestias (opcional)", placeholder="Cuéntanos cómo te has encontrado…")
             rpe_ok = st.form_submit_button("Registrar carga", type="primary", use_container_width=True)
@@ -304,6 +369,7 @@ def player_portal() -> None:
                 ok, message = submit_to_sheet("Import_RPE", payload)
             (st.success if ok else st.error)(message)
             if ok:
+                load_data.clear()
                 st.caption(f"Carga interna estimada: {effort * int(minutes)} unidades (RPE × minutos).")
 
     with history_tab:
@@ -364,6 +430,48 @@ def staff_portal() -> None:
         if st.button("Reintentar carga"):
             load_data.clear()
             st.rerun()
+        return
+
+    with st.sidebar:
+        st.markdown("### Primer equipo")
+        section = st.radio("Área", ["Panel de rendimiento", "Jugadores"], key="staff_section")
+
+    if section == "Jugadores":
+        profiles = load_profiles()
+        players = sorted(set(ROSTER) | set(profiles["Usuario"].dropna()) |
+                         set(tqr.get("Jugador", pd.Series(dtype=str)).dropna()) |
+                         set(rpe.get("Jugador", pd.Series(dtype=str)).dropna()))
+        st.subheader("Primer equipo · Jugadores")
+        st.caption("Fichas de plantilla. Los campos personales se completan en jugadores.csv; no se inventan datos.")
+        search = st.text_input("Buscar jugador", placeholder="Nombre o apellidos")
+        filtered = [u for u in players if search.casefold() in
+                    (u + " " + player_profile(u, profiles).get("Nombre", "") + " " +
+                     player_profile(u, profiles).get("Apellidos", "")).casefold()]
+        if not filtered:
+            st.info("No hay jugadores que coincidan con la búsqueda.")
+            return
+        selected = st.selectbox("Seleccionar futbolista", filtered)
+        info = player_profile(selected, profiles)
+        name = " ".join(x for x in [info.get("Nombre", ""), info.get("Apellidos", "")] if x).strip() or selected
+        st.markdown(f"### {name}")
+        a, b, c = st.columns(3)
+        a.metric("Edad", age_from_birthdate(info.get("Fecha_nacimiento", "")))
+        b.metric("Posición", info.get("Posicion") or "Sin completar")
+        c.metric("Dorsal", info.get("Dorsal") or "Sin completar")
+        st.caption(f"Usuario de acceso: {selected}")
+        own_rpe = rpe[rpe["Jugador"].str.casefold() == selected.casefold()] if not rpe.empty else rpe
+        own_tqr = tqr[tqr["Jugador"].str.casefold() == selected.casefold()] if not tqr.empty else tqr
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sesiones RPE", len(own_rpe))
+        c2.metric("Carga acumulada", f"{own_rpe['Carga'].sum():.0f} UA" if not own_rpe.empty else "0 UA")
+        c3.metric("Respuestas bienestar", len(own_tqr))
+        if not own_rpe.empty:
+            st.markdown("**Histórico de carga interna**")
+            st.bar_chart(own_rpe.set_index("Fecha")[["Carga"]].tail(60))
+            st.dataframe(own_rpe[["Fecha", "RPE", "Minutos", "Carga", "Tipo"]].sort_values("Fecha", ascending=False),
+                         use_container_width=True, hide_index=True)
+        else:
+            st.info("Este futbolista todavía no tiene sesiones RPE reconocidas.")
         return
 
     if tqr.empty and rpe.empty:
