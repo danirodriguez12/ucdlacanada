@@ -28,7 +28,7 @@ st.set_page_config(
 )
 
 CLUB = "UCD La Cañada Atlético"
-APP_VERSION = "4.0 · Revisión para pruebas del club"
+APP_VERSION = "5.0 · Ratio ACWR y seguimiento CMJ"
 CSV_TQR_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?gid=0&single=true&output=csv"
 )
@@ -89,6 +89,34 @@ h1,h2,h3{color:#361d23;font-family:'Space Grotesk',sans-serif;letter-spacing:-.0
 [data-testid="stSidebar"]{background:linear-gradient(180deg,#8f1225 0%,#ba1c30 58%,#6f1120 100%)}
 [data-testid="stSidebar"] *{color:#e8edf6!important}
 [data-testid="stSidebar"] [data-baseweb="select"] *{color:#2a1a1d!important}
+/* Los textos del menú siguen claros; los valores dentro de los campos, negros.
+   Se incluyen selectores de fecha, desplegables y botones para ambas variantes
+   habituales de Streamlit/BaseWeb. */
+[data-testid="stSidebar"] [data-testid="stDateInput"] input,
+[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] [role="combobox"],
+[data-testid="stSidebar"] [data-testid="stSelectbox"] [role="combobox"] *,
+[data-testid="stSidebar"] [data-baseweb="select"] [role="combobox"],
+[data-testid="stSidebar"] [data-baseweb="select"] [role="combobox"] *,
+[data-testid="stSidebar"] [data-testid="stButton"] button,
+[data-testid="stSidebar"] [data-testid="stButton"] button * {
+  color:#181818!important;
+  -webkit-text-fill-color:#181818!important;
+}
+[data-testid="stSidebar"] input::placeholder {
+  color:#666!important;
+  -webkit-text-fill-color:#666!important;
+  opacity:1!important;
+}
+/* El texto de las opciones de los menús desplegables, también legible. */
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] *,
+[data-baseweb="menu"] [role="option"],
+[data-baseweb="menu"] [role="option"] * {
+  color:#181818!important;
+  -webkit-text-fill-color:#181818!important;
+}
 .hero{background:linear-gradient(112deg,#8c1022 0%,#c81f32 68%,#e25462 125%);padding:1.7rem 2rem;border-radius:18px;color:#fff;margin-bottom:1.3rem;box-shadow:0 12px 32px #9d1b2f21}
 .hero h1{color:#fff;margin:0;font-size:2rem}
 .hero p{color:#dbe5f3;margin:.45rem 0 0}
@@ -516,6 +544,188 @@ def weekly_metrics(df, player, end_date):
     return daily,total,monotony,strain
 
 
+# ACWR: mismo cálculo y mismos cortes que el Dashboard_Semanal del Excel
+# facilitado por el preparador físico: 7 días frente a (28 días / 4).
+# Se trata del modelo acoplado: los últimos 7 días también están en los 28.
+def acwr_metrics(df, player: str, end_date):
+    daily28 = daily_loads(df, player, end_date, 28)
+    acute = float(daily28.tail(7).sum())
+    chronic = float(daily28.sum()) / 4.0
+    if chronic <= 0 or acute <= 0:
+        return acute, chronic, None, "SIN HISTÓRICO"
+    ratio = round(acute / chronic, 2)
+    if ratio < 0.80:
+        status = "CARGA BAJA"
+    elif ratio <= 1.30:
+        status = "PUNTO DULCE"
+    elif ratio <= 1.50:
+        status = "PRECAUCIÓN"
+    else:
+        status = "PICO DE CARGA"
+    return acute, chronic, ratio, status
+
+
+def acwr_label_color(status: str) -> tuple[str, str]:
+    return {
+        "SIN HISTÓRICO": ("#f3f4f6", "#374151"),
+        "CARGA BAJA": ("#dbf3fd", "#075985"),
+        "PUNTO DULCE": ("#dcfce7", "#166534"),
+        "PRECAUCIÓN": ("#fef3c7", "#92400e"),
+        "PICO DE CARGA": ("#ffe0e4", "#991b1b"),
+    }.get(status, ("#f3f4f6", "#374151"))
+
+
+def show_acwr_status(status: str):
+    bg, fg = acwr_label_color(status)
+    st.markdown(
+        f'<span style="display:inline-block;padding:7px 12px;border-radius:9px;'
+        f'background:{bg};color:{fg};font-weight:750;font-size:.87rem">{status}</span>',
+        unsafe_allow_html=True,
+    )
+
+
+# CMJ: mediciones introducidas por el staff. Nunca se mezclan con Import_RPE.
+# Modo opcional Google Sheets: crear pestaña Import_CMJ con columnas
+# Fecha, Jugador, Altura_cm, Observaciones y poner su CSV publicado en
+# Secrets -> CSV_CMJ_URL. En ausencia de esa URL, usa cmj_registros.csv:
+# editar en la sesión, descargar y reemplazar en GitHub para conservar cambios.
+CMJ_FILE = Path(__file__).with_name("cmj_registros.csv")
+CMJ_COLS = ["Fecha", "Jugador", "Altura_cm", "Observaciones"]
+
+
+def normalize_cmj(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=CMJ_COLS)
+    out = df.copy()
+    out.columns = [str(c).strip() for c in out.columns]
+    for col in CMJ_COLS:
+        if col not in out.columns:
+            out[col] = ""
+    raw = out["Fecha"].astype(str).str.strip()
+    iso = pd.to_datetime(raw, format="%Y-%m-%d", errors="coerce")
+    mixed = pd.to_datetime(raw, format="mixed", dayfirst=True, errors="coerce")
+    out["Fecha"] = iso.fillna(mixed)
+    out["Jugador"] = out["Jugador"].fillna("").astype(str).str.strip()
+    out["Altura_cm"] = pd.to_numeric(
+        out["Altura_cm"].astype(str).str.replace(",", ".", regex=False),
+        errors="coerce"
+    )
+    out["Observaciones"] = out["Observaciones"].fillna("").astype(str)
+    out = out.dropna(subset=["Fecha", "Altura_cm"])
+    out = out[out["Jugador"].ne("") & out["Altura_cm"].between(1, 100)]
+    # Cada fecha/jugador es una observación; si en el CSV hay correcciones,
+    # prevalece la última fila, no se multiplican las mediciones.
+    return out.drop_duplicates(subset=["Fecha", "Jugador"], keep="last").sort_values("Fecha")[CMJ_COLS]
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def load_local_cmj() -> pd.DataFrame:
+    if not CMJ_FILE.exists():
+        return normalize_cmj(pd.DataFrame(columns=CMJ_COLS))
+    return normalize_cmj(pd.read_csv(CMJ_FILE, dtype=str, keep_default_na=False,
+                                    encoding="utf-8-sig"))
+
+
+def get_cmj_records() -> tuple[pd.DataFrame, bool, str | None]:
+    url = str(secret("CSV_CMJ_URL", "") or "").strip()
+    if url:
+        try:
+            return normalize_cmj(load_data(url)), True, None
+        except Exception as exc:
+            return load_local_cmj(), False, f"No se pudo leer Import_CMJ: {exc}"
+    if "cmj_edit" not in st.session_state:
+        st.session_state["cmj_edit"] = load_local_cmj().copy()
+    return st.session_state["cmj_edit"], False, None
+
+
+def cmj_chart(measurements: pd.DataFrame, player: str):
+    sel = measurements[measurements["Jugador"].map(player_key) == player_key(player)].copy()
+    sel = sel.sort_values("Fecha")
+    if sel.empty:
+        st.info("Aún no hay mediciones CMJ registradas para este jugador.")
+        return
+    a, b, c = st.columns(3)
+    a.metric("Último CMJ", f"{sel.iloc[-1]['Altura_cm']:.1f} cm")
+    b.metric("Mediciones", len(sel))
+    if len(sel) >= 2:
+        delta = float(sel.iloc[-1]["Altura_cm"] - sel.iloc[-2]["Altura_cm"])
+        c.metric("Cambio frente a la anterior", f"{delta:+.1f} cm")
+    else:
+        c.metric("Cambio frente a la anterior", "Sin comparación")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sel["Fecha"], y=sel["Altura_cm"], mode="lines+markers",
+        name="Altura de salto", line=dict(color=RED, width=3),
+        marker=dict(size=9, color=RED, line=dict(color="white", width=2)),
+        hovertemplate="%{x|%d/%m/%Y}<br>%{y:.1f} cm<extra></extra>",
+    ))
+    fig.update_layout(title="Evolución del salto CMJ", yaxis_title="Altura (cm)",
+                      xaxis_title="Fecha de medición")
+    st.plotly_chart(chart_style(fig, 310), use_container_width=True)
+    show = sel.copy()
+    show["Fecha"] = show["Fecha"].dt.strftime("%d/%m/%Y")
+    show = show.rename(columns={"Altura_cm": "Altura (cm)"})
+    st.dataframe(show[["Fecha", "Altura (cm)", "Observaciones"]].iloc[::-1],
+                 hide_index=True, use_container_width=True)
+    st.caption("Comparar mediciones hechas con un protocolo similar. El preparador físico interpreta las variaciones; el sistema no establece diagnósticos.")
+
+
+def cmj_staff_entry(measurements: pd.DataFrame, player: str, remote: bool):
+    st.markdown("#### Registro de salto CMJ · solo cuerpo técnico")
+    st.caption("El preparador físico introduce manualmente la altura en centímetros. Se recomienda realizar una medición cada dos semanas.")
+    if remote:
+        st.caption("Guardado configurado en Google Sheets → Import_CMJ.")
+    else:
+        st.info("Modo CSV: los cambios permanecen en esta sesión. Descarga cmj_registros.csv y sustitúyelo en GitHub para guardarlos de forma permanente.")
+    with st.form("cmj_entry", clear_on_submit=True):
+        a, b = st.columns(2)
+        with a:
+            measure_date = st.date_input("Fecha de medición CMJ", value=date.today(),
+                                         key="cmj_measure_date")
+        with b:
+            height = st.number_input("Altura CMJ (cm)", min_value=1.0,
+                                     max_value=100.0, value=35.0, step=0.1, format="%.1f")
+        notes = st.text_input("Observaciones del preparador físico (opcional)",
+                              placeholder="Condiciones del test, incidencias…")
+        save = st.form_submit_button("Guardar medición CMJ", type="primary")
+    if save:
+        day = pd.Timestamp(measure_date).normalize()
+        exists = (not measurements.empty and
+                  ((measurements["Jugador"].map(player_key) == player_key(player)) &
+                   (measurements["Fecha"].dt.normalize() == day)).any())
+        submission_key = (player_key(player), measure_date.isoformat())
+        already_submitted = submission_key in st.session_state.get("cmj_submitted_keys", set())
+        if exists or (remote and already_submitted):
+            st.warning("Ya hay una medición CMJ de este jugador en esa fecha. No se ha creado un duplicado. Para corregirla, edita el registro de origen.")
+        elif remote:
+            ok, message = submit_to_sheet("Import_CMJ", [measure_date.isoformat(), player,
+                                                           round(float(height), 1), notes.strip()])
+            if ok:
+                submitted = st.session_state.get("cmj_submitted_keys", set())
+                submitted.add(submission_key)
+                st.session_state["cmj_submitted_keys"] = submitted
+                load_data.clear()
+                st.success("CMJ recibido por Google Sheets. Actualiza los datos si aún no aparece en el gráfico.")
+            else:
+                st.error(message)
+        else:
+            new_row = pd.DataFrame([{"Fecha": day, "Jugador": player,
+                                     "Altura_cm": round(float(height), 1),
+                                     "Observaciones": notes.strip()}])
+            st.session_state["cmj_edit"] = normalize_cmj(pd.concat(
+                [measurements, new_row], ignore_index=True))
+            st.success("Medición añadida a esta sesión. Descarga el CSV actualizado para conservarla.")
+    if not remote:
+        current = st.session_state.get("cmj_edit", measurements)
+        export = current.copy()
+        if not export.empty:
+            export["Fecha"] = export["Fecha"].dt.strftime("%Y-%m-%d")
+        st.download_button("Descargar cmj_registros.csv",
+                           data=export[CMJ_COLS].to_csv(index=False).encode("utf-8-sig"),
+                           file_name="cmj_registros.csv", mime="text/csv",
+                           use_container_width=True)
+
+
 def microcycle_table(sessions, match_day):
     if sessions.empty: return pd.DataFrame(columns=["Fecha","Día relativo","Tipo","Etiqueta","Rival","Notas"])
     out=sessions.copy()
@@ -616,6 +826,7 @@ def analytics_panel(rpe, tqr, players):
         return
     player=st.selectbox("Futbolista",players,key="analysis_player")
     daily,total,monotony,strain=weekly_metrics(rpe,player,end_date)
+    acute, chronic, ratio, status = acwr_metrics(rpe, player, end_date)
     cols=st.columns(4)
     cols[0].metric("Carga 7 días",f"{total:,.0f} UA")
     cols[1].metric("Media diaria",f"{daily.mean():,.0f} UA")
@@ -623,17 +834,37 @@ def analytics_panel(rpe, tqr, players):
     cols[3].metric("Strain",f"{strain:,.0f}" if strain is not None else "N/D")
     fig=plot_daily(pd.DataFrame({"Día":daily.index,"Carga":daily.values}),"Distribución diaria · últimos 7 días")
     st.plotly_chart(fig,use_container_width=True)
+    st.markdown("#### Ratio agudo/crónico (ACWR)")
+    acols = st.columns(3)
+    acols[0].metric("Carga aguda · 7 días", f"{acute:,.0f} UA")
+    acols[1].metric("Carga crónica · 28 días / 4", f"{chronic:,.0f} UA")
+    acols[2].metric("Ratio ACWR", f"{ratio:.2f}" if ratio is not None else "N/D")
+    show_acwr_status(status)
+    st.caption("Criterio del Excel del PF: ACWR = carga de 7 días / (carga de 28 días ÷ 4). "
+               "Modelo de ventanas acopladas. Cortes descriptivos: <0,80 baja; 0,80–1,30 punto dulce; "
+               "1,31–1,50 precaución; >1,50 pico. Si el ratio es 0 o no se puede calcular, "
+               "se muestra 'Sin histórico', como en el Excel; no implica necesariamente ausencia de datos previos. "
+               "Requiere registros completos y no es diagnóstico ni predicción de lesiones.")
     st.caption("Monotonía = media diaria / desviación estándar poblacional. Strain = carga de 7 días × monotonía. "
                "No se calcula monotonía si la desviación es cero; no se utilizan umbrales de riesgo clínico.")
     with st.expander("Comparativa de plantilla · misma semana"):
         rows=[]
         for name in players:
             d,t,m,stn=weekly_metrics(rpe,name,end_date)
+            a7, c28, acwr, level = acwr_metrics(rpe, name, end_date)
             rows.append({"Jugador":name,"Carga 7d":round(t),"Media diaria":round(d.mean()),
                          "Monotonía":round(m,2) if m is not None else None,
-                         "Strain":round(stn) if stn is not None else None})
+                         "Strain":round(stn) if stn is not None else None,
+                         "Crónica 28d (UA/sem)":round(c28),
+                         "ACWR":acwr,"Interpretación ACWR":level})
         comp=pd.DataFrame(rows).sort_values("Carga 7d",ascending=False)
-        st.dataframe(comp,use_container_width=True,hide_index=True)
+        def style_acwr(value):
+            bg, fg = acwr_label_color(str(value))
+            return f"background-color: {bg}; color: {fg}; font-weight: 700;"
+        styled = comp.style.apply(
+            lambda col: col.map(style_acwr), subset=["Interpretación ACWR"]
+        )
+        st.dataframe(styled, use_container_width=True, hide_index=True)
         fig=px.bar(comp.head(15).sort_values("Carga 7d"),x="Carga 7d",y="Jugador",orientation="h",
                    color_discrete_sequence=[RED],text="Carga 7d")
         fig.update_layout(title="Carga semanal · 15 primeras cargas registradas")
@@ -672,6 +903,7 @@ def staff_portal() -> None:
                       set(tqr.get("Jugador", pd.Series(dtype=str)).dropna()) |
                       set(rpe.get("Jugador", pd.Series(dtype=str)).dropna())) - {""})
     rpe = valid_rpe(rpe)
+    cmj, cmj_remote, cmj_error = get_cmj_records()
     sessions = current_sessions()
     if section == "Participación RPE":
         participation_panel(rpe,players,sessions)
@@ -729,6 +961,14 @@ def staff_portal() -> None:
             a.metric("Sesiones registradas", len(own_rpe))
             b.metric("Carga total histórica", f"{own_rpe['Carga'].sum():.0f} UA" if not own_rpe.empty else "0 UA")
             c.metric("Respuestas de bienestar", len(own_tqr))
+            st.markdown("#### Ratio agudo/crónico (ACWR)")
+            a7, c28, acwr, level = acwr_metrics(rpe, selected, end_date)
+            x1,x2,x3=st.columns(3)
+            x1.metric("Aguda · 7 días", f"{a7:,.0f} UA")
+            x2.metric("Crónica · 28 días / 4", f"{c28:,.0f} UA")
+            x3.metric("ACWR", f"{acwr:.2f}" if acwr is not None else "N/D")
+            show_acwr_status(level)
+            st.caption("Clasificación descriptiva según el Excel del PF. No predice lesiones.")
             if not own_rpe.empty:
                 chart_rpe = own_rpe.copy()
                 chart_rpe["Día"] = chart_rpe["Fecha"].dt.date
@@ -742,6 +982,8 @@ def staff_portal() -> None:
                 wellness_cols = [c for c in ["TQR", "Sueño", "DOMS", "Estrés"] if c in own_tqr]
                 if wellness_cols:
                     st.plotly_chart(plot_wellness(own_tqr.tail(60)),use_container_width=True)
+            st.markdown("#### Evolución del salto CMJ")
+            cmj_chart(cmj, selected)
         with edit_tab:
             st.info("La edición se mantiene durante esta sesión. Descarga el CSV y sustituye jugadores.csv en GitHub para guardar los cambios de forma permanente. No modifica Google Sheets ni los registros de carga.")
             with st.form("edit_player_profile"):
@@ -886,6 +1128,12 @@ def staff_portal() -> None:
                          f"Última respuesta: {ptqr.iloc[-1]['Fecha']:%d/%m/%Y %H:%M}")
                 st.write(f"Última carga registrada: {prpe.iloc[-1]['Carga']:.0f} UA · "
                          f"{prpe.iloc[-1]['Fecha']:%d/%m/%Y %H:%M}")
+            st.divider()
+            st.markdown("### Seguimiento CMJ · salto vertical")
+            if cmj_error:
+                st.warning(cmj_error)
+            cmj_chart(cmj, chosen)
+            cmj_staff_entry(cmj, chosen, cmj_remote)
     with tab4:
         st.subheader("Registros del periodo")
         c1, c2 = st.columns(2)
