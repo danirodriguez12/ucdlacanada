@@ -28,12 +28,15 @@ st.set_page_config(
 )
 
 CLUB = "UCD La Cañada Atlético"
-APP_VERSION = "5.0 · Ratio ACWR y seguimiento CMJ"
+APP_VERSION = "5.2 · CMJ conectado a Google Sheets"
 CSV_TQR_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?gid=0&single=true&output=csv"
 )
 CSV_RPE_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?gid=1&single=true&output=csv"
+)
+CSV_CMJ_URL = (
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNC-xJmcfT39bVMWEjqGAbfTUv1kRRudtLWwTQvsoCDy_gb5ggcCyZaHkqAT9CkoQhQ2v8eB0jTPjc/pub?gid=339819547&single=true&output=csv"
 )
 
 ROSTER = [
@@ -584,58 +587,84 @@ def show_acwr_status(status: str):
     )
 
 
-# CMJ: mediciones introducidas por el staff. Nunca se mezclan con Import_RPE.
-# Modo opcional Google Sheets: crear pestaña Import_CMJ con columnas
-# Fecha, Jugador, Altura_cm, Observaciones y poner su CSV publicado en
-# Secrets -> CSV_CMJ_URL. En ausencia de esa URL, usa cmj_registros.csv:
-# editar en la sesión, descargar y reemplazar en GitHub para conservar cambios.
-CMJ_FILE = Path(__file__).with_name("cmj_registros.csv")
+# CMJ: mediciones introducidas exclusivamente por el staff.
+# Persistencia: Google Sheets (pestaña Import_CMJ) por el webhook existente.
+# Lectura: CSV_CMJ_URL definida en este archivo (gid real de Import_CMJ).
+# NO se utiliza un CSV local ni se guarda en GitHub.
+# Encabezados reales de la hoja del club (también se aceptan nombres
+# alternativos de versiones anteriores):
+#   Marca temporal | Nombre | Altura_cm | Observaciones / Molestias
 CMJ_COLS = ["Fecha", "Jugador", "Altura_cm", "Observaciones"]
 
 
 def normalize_cmj(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return pd.DataFrame(columns=CMJ_COLS)
+    """Interpreta la hoja del club sin modificarla; fecha de prueba = columna A.
+
+    Admite tanto la estructura real 'Marca temporal / Nombre' como la
+    alternativa antigua 'Fecha / Jugador'. Las fechas se normalizan a día
+    para evitar que una nueva medición a distintas horas duplique la prueba.
+    """
     out = df.copy()
     out.columns = [str(c).strip() for c in out.columns]
-    for col in CMJ_COLS:
-        if col not in out.columns:
-            out[col] = ""
-    raw = out["Fecha"].astype(str).str.strip()
-    iso = pd.to_datetime(raw, format="%Y-%m-%d", errors="coerce")
-    mixed = pd.to_datetime(raw, format="mixed", dayfirst=True, errors="coerce")
-    out["Fecha"] = iso.fillna(mixed)
-    out["Jugador"] = out["Jugador"].fillna("").astype(str).str.strip()
+
+    time_col = find_col(out, "marca temporal") or find_col(out, "fecha")
+    name_col = find_col(out, "nombre") or find_col(out, "jugador")
+    height_col = find_col(out, "altura_cm") or find_col(out, "altura cm")
+    obs_col = find_col(out, "observaciones")
+    missing = [label for label, col in [
+        ("Marca temporal", time_col), ("Nombre", name_col),
+        ("Altura_cm", height_col),
+    ] if col is None]
+    if missing:
+        raise ValueError(
+            "La pestaña Import_CMJ no tiene las columnas esperadas: "
+            + ", ".join(missing)
+            + ". Debe contener: Marca temporal | Nombre | Altura_cm | Observaciones / Molestias."
+        )
+    if out.empty:
+        return pd.DataFrame(columns=CMJ_COLS)
+
+    raw = out[time_col].fillna("").astype(str).str.strip()
+    date_iso_seconds = pd.to_datetime(raw, format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    date_iso_only = pd.to_datetime(raw, format="%Y-%m-%d", errors="coerce")
+    date_other = pd.to_datetime(raw, format="mixed", dayfirst=True, errors="coerce")
+    out["Fecha"] = date_iso_seconds.fillna(date_iso_only).fillna(date_other)
+    out["Jugador"] = out[name_col].fillna("").astype(str).str.strip()
     out["Altura_cm"] = pd.to_numeric(
-        out["Altura_cm"].astype(str).str.replace(",", ".", regex=False),
-        errors="coerce"
+        out[height_col].fillna("").astype(str).str.replace(",", ".", regex=False),
+        errors="coerce",
     )
-    out["Observaciones"] = out["Observaciones"].fillna("").astype(str)
+    out["Observaciones"] = (
+        out[obs_col].fillna("").astype(str).str.strip() if obs_col else ""
+    )
     out = out.dropna(subset=["Fecha", "Altura_cm"])
-    out = out[out["Jugador"].ne("") & out["Altura_cm"].between(1, 100)]
-    # Cada fecha/jugador es una observación; si en el CSV hay correcciones,
-    # prevalece la última fila, no se multiplican las mediciones.
-    return out.drop_duplicates(subset=["Fecha", "Jugador"], keep="last").sort_values("Fecha")[CMJ_COLS]
-
-
-@st.cache_data(ttl=90, show_spinner=False)
-def load_local_cmj() -> pd.DataFrame:
-    if not CMJ_FILE.exists():
-        return normalize_cmj(pd.DataFrame(columns=CMJ_COLS))
-    return normalize_cmj(pd.read_csv(CMJ_FILE, dtype=str, keep_default_na=False,
-                                    encoding="utf-8-sig"))
+    out = out[out["Jugador"].ne("") & out["Altura_cm"].between(1, 100)].copy()
+    # La hoja original es la fuente de verdad: si existen varias filas para
+    # un futbolista en un día, solo se representa la última en el dashboard.
+    out["_dia"] = out["Fecha"].dt.normalize()
+    out["_jugador"] = out["Jugador"].map(player_key)
+    out = out.drop_duplicates(subset=["_dia", "_jugador"], keep="last")
+    return out.sort_values("Fecha")[CMJ_COLS].reset_index(drop=True)
 
 
 def get_cmj_records() -> tuple[pd.DataFrame, bool, str | None]:
-    url = str(secret("CSV_CMJ_URL", "") or "").strip()
-    if url:
-        try:
-            return normalize_cmj(load_data(url)), True, None
-        except Exception as exc:
-            return load_local_cmj(), False, f"No se pudo leer Import_CMJ: {exc}"
-    if "cmj_edit" not in st.session_state:
-        st.session_state["cmj_edit"] = load_local_cmj().copy()
-    return st.session_state["cmj_edit"], False, None
+    """Nunca se pasa a guardado local si falla Google Sheets."""
+    url = CSV_CMJ_URL.strip()
+    empty = pd.DataFrame(columns=CMJ_COLS)
+    if not url:
+        return empty, False, (
+            "No se ha configurado CSV_CMJ_URL en el código. "
+            "No se guardará nada hasta que la conexión esté configurada."
+        )
+    try:
+        data = normalize_cmj(load_data(url))
+        return data, True, None
+    except Exception as exc:
+        return empty, False, (
+            "No se puede leer Import_CMJ desde Google Sheets: "
+            f"{exc}. El formulario queda bloqueado para evitar registros "
+            "no comprobables o duplicados."
+        )
 
 
 def cmj_chart(measurements: pd.DataFrame, player: str):
@@ -672,11 +701,15 @@ def cmj_chart(measurements: pd.DataFrame, player: str):
 
 def cmj_staff_entry(measurements: pd.DataFrame, player: str, remote: bool):
     st.markdown("#### Registro de salto CMJ · solo cuerpo técnico")
-    st.caption("El preparador físico introduce manualmente la altura en centímetros. Se recomienda realizar una medición cada dos semanas.")
-    if remote:
-        st.caption("Guardado configurado en Google Sheets → Import_CMJ.")
-    else:
-        st.info("Modo CSV: los cambios permanecen en esta sesión. Descarga cmj_registros.csv y sustitúyelo en GitHub para guardarlos de forma permanente.")
+    if not remote:
+        st.info("El registro de CMJ estará disponible cuando la conexión con Import_CMJ funcione correctamente.")
+        return
+    st.caption("Selecciona el día de la prueba y anota la altura del salto. Se guardará en Google Sheets sin descargar archivos.")
+    # Evita que el responsable necesite esperar a que expire la caché.
+    if st.button("Actualizar mediciones CMJ", key="cmj_update_remote", use_container_width=False):
+        load_data.clear()
+        st.rerun()
+
     with st.form("cmj_entry", clear_on_submit=True):
         a, b = st.columns(2)
         with a:
@@ -687,7 +720,8 @@ def cmj_staff_entry(measurements: pd.DataFrame, player: str, remote: bool):
                                      max_value=100.0, value=35.0, step=0.1, format="%.1f")
         notes = st.text_input("Observaciones del preparador físico (opcional)",
                               placeholder="Condiciones del test, incidencias…")
-        save = st.form_submit_button("Guardar medición CMJ", type="primary")
+        save = st.form_submit_button("Guardar medición en Google Sheets", type="primary")
+
     if save:
         day = pd.Timestamp(measure_date).normalize()
         exists = (not measurements.empty and
@@ -695,35 +729,26 @@ def cmj_staff_entry(measurements: pd.DataFrame, player: str, remote: bool):
                    (measurements["Fecha"].dt.normalize() == day)).any())
         submission_key = (player_key(player), measure_date.isoformat())
         already_submitted = submission_key in st.session_state.get("cmj_submitted_keys", set())
-        if exists or (remote and already_submitted):
-            st.warning("Ya hay una medición CMJ de este jugador en esa fecha. No se ha creado un duplicado. Para corregirla, edita el registro de origen.")
-        elif remote:
-            ok, message = submit_to_sheet("Import_CMJ", [measure_date.isoformat(), player,
-                                                           round(float(height), 1), notes.strip()])
-            if ok:
-                submitted = st.session_state.get("cmj_submitted_keys", set())
-                submitted.add(submission_key)
-                st.session_state["cmj_submitted_keys"] = submitted
-                load_data.clear()
-                st.success("CMJ recibido por Google Sheets. Actualiza los datos si aún no aparece en el gráfico.")
-            else:
-                st.error(message)
+        if exists or already_submitted:
+            st.warning("Ya figura una medición de este jugador para ese día (o se ha enviado en esta sesión). No se ha creado otro registro. Para corregirla, edita la fila original de Import_CMJ.")
+            return
+
+        # La columna A del Sheet es 'Marca temporal'. Para pruebas realizadas
+        # HOY enviamos la hora real del registro; para pruebas anteriores, solo
+        # la fecha indicada (sin inventar una hora histórica).
+        now = datetime.now()
+        stamp = now.strftime("%Y-%m-%d %H:%M:%S") if measure_date == now.date() else measure_date.isoformat()
+        payload = [stamp, player, round(float(height), 1), notes.strip()]
+        ok, message = submit_to_sheet("Import_CMJ", payload)
+        if ok:
+            sent = st.session_state.get("cmj_submitted_keys", set())
+            sent.add(submission_key)
+            st.session_state["cmj_submitted_keys"] = sent
+            load_data.clear()
+            st.success("Medición enviada a Import_CMJ. Los gráficos se actualizarán cuando Google Sheets publique el dato; si no aparece de inmediato, pulsa ‘Actualizar mediciones CMJ’.")
         else:
-            new_row = pd.DataFrame([{"Fecha": day, "Jugador": player,
-                                     "Altura_cm": round(float(height), 1),
-                                     "Observaciones": notes.strip()}])
-            st.session_state["cmj_edit"] = normalize_cmj(pd.concat(
-                [measurements, new_row], ignore_index=True))
-            st.success("Medición añadida a esta sesión. Descarga el CSV actualizado para conservarla.")
-    if not remote:
-        current = st.session_state.get("cmj_edit", measurements)
-        export = current.copy()
-        if not export.empty:
-            export["Fecha"] = export["Fecha"].dt.strftime("%Y-%m-%d")
-        st.download_button("Descargar cmj_registros.csv",
-                           data=export[CMJ_COLS].to_csv(index=False).encode("utf-8-sig"),
-                           file_name="cmj_registros.csv", mime="text/csv",
-                           use_container_width=True)
+            st.error(message)
+            st.warning("Comprueba Import_CMJ antes de volver a pulsar Guardar; el servidor podría haber escrito la fila aunque no haya confirmado la respuesta.")
 
 
 def microcycle_table(sessions, match_day):
@@ -983,6 +1008,8 @@ def staff_portal() -> None:
                 if wellness_cols:
                     st.plotly_chart(plot_wellness(own_tqr.tail(60)),use_container_width=True)
             st.markdown("#### Evolución del salto CMJ")
+            if cmj_error:
+                st.warning(cmj_error)
             cmj_chart(cmj, selected)
         with edit_tab:
             st.info("La edición se mantiene durante esta sesión. Descarga el CSV y sustituye jugadores.csv en GitHub para guardar los cambios de forma permanente. No modifica Google Sheets ni los registros de carga.")
